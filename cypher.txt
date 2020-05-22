@@ -1,0 +1,63 @@
+
+
+
+// 测试API。请替换access_token
+CALL apoc.load.jsonParams('https://aip.baidubce.com/rpc/2.0/nlp/v1/lexer?charset=UTF-8&access_token=???????????????????????', {},
+'{"text": "Neo4j是全球领先的图数据库软件"}', null, {}) YIELD value
+RETURN value
+
+
+
+
+// ***************** 开始 ************************
+// 3.3 词法分析
+ 
+// 初始化文本内容数组
+WITH ["Neo4j是全球领先的图数据库软件", "Neo4j于2007年在瑞典创建"] AS sentences
+UNWIND sentences AS sentence
+// 使用百度云NLP对句子进行分词，然后创建句子和词的关系图谱
+CALL apoc.load.jsonParams(
+'https://aip.baidubce.com/rpc/2.0/nlp/v1/lexer?charset=UTF-8&access_token=?????????????????????????????', {},
+'{"text": "'+sentence + '"}', null, {}) YIELD value
+WITH value
+CREATE (s:Sentence{text:value.text})
+WITH value, s, value.items AS items
+UNWIND items AS item
+// 过滤掉助词如'的'
+WITH s, item WHERE item.pos <> 'u'
+MERGE (a:Word{word:item.item})
+  SET a.pos = item.pos, a.byte_offset = item.byte_offset, a.ne = item.ne, a.formal = item.formal, a.uri = item.uri
+CREATE (s) <-[:IN_SENTENCE]- (a)
+RETURN a
+// ***************** 结束 ************************
+
+
+
+// ***************** 开始 ************************
+// 3.4 使用百度云NLP对句子中的词进行依存关系分析，然后创建句子和词的关系图谱
+
+MATCH (s:Sentence)
+WITH s
+CALL apoc.load.jsonParams('https://aip.baidubce.com/rpc/2.0/nlp/v1/depparser?charset=UTF-8&access_token=???????????????????????', {},
+'{"text": "'+ s.text +'","mode":1}', null, {}) YIELD value
+WITH s, value, value.items AS items
+UNWIND items AS item
+// 更新词的属性。
+// 这里过滤掉助词如'的'。注意这里返回结果中代表词性的属性名是postag。
+WITH s, item WHERE item.postag <> 'u'
+MATCH (a:Word{word:item.word})
+  SET a.id = item.id, a.head = item.head, a.deprel = item.deprel
+WITH s  
+// 根据分析结果创建词之间的依存关系
+MATCH (s) <-[:IN_SENTENCE]- (w)  
+WITH s,w WHERE w.head <> 0
+MATCH (s) <-[:IN_SENTENCE]- (w1)
+WHERE w.head = w1.id
+MERGE (w) -[:DEPENDS_ON{type:w.deprel}]-> (w1)
+RETURN w
+// ***************** 结束 ************************
+
+
+
+
+
